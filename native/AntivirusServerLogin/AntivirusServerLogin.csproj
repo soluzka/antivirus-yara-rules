@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishTrimmed>false</PublishTrimmed>
+    <TrimmerRemoveSymbols>true</TrimmerRemoveSymbols>
+    <DebuggerSupport>false</DebuggerSupport>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <AssemblyTitle>Antivirus Server Login</AssemblyTitle>
+    <AssemblyProduct>Antivirus Server</AssemblyProduct>
+    <AssemblyCompany>soluzka</AssemblyCompany>
+    <Version>1.8.678.0</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <CloudflaredPath Condition="'$(CloudflaredPath)' == '' and Exists('C:\caddy\cloudflared.exe')">C:\caddy\cloudflared.exe</CloudflaredPath>
+    <CloudflaredPath Condition="'$(CloudflaredPath)' == '' and Exists('$(LOCALAPPDATA)\IsolationBytes\cloudflared\cloudflared.exe')">$(LOCALAPPDATA)\IsolationBytes\cloudflared\cloudflared.exe</CloudflaredPath>
+    <CloudflaredPath Condition="'$(CloudflaredPath)' == ''">..\..\cloud\cloudflared.exe</CloudflaredPath>
+  </PropertyGroup>
+
+  <!-- Python installer embedded for bootstrap fallback -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\python-3.11.9-amd64.exe" LogicalName="python_installer.exe" />
+  </ItemGroup>
+
+  <!-- cloud_server.exe embedded so the launcher is fully self-contained -->
+  <!-- cloud_service.py embedded so the launcher can install the Windows service -->
+  <!-- No .env embedded — launcher fetches config from the server at runtime -->
+  <ItemGroup>
+    <Compile Remove="EnvData.g.cs" />
+    <EmbeddedResource Include="..\..\dist\cloud_server.exe" LogicalName="cloud_server_exe" />
+    <EmbeddedResource Include="$(CloudflaredPath)" LogicalName="cloudflared_exe" Condition="Exists('$(CloudflaredPath)')" />
+    <EmbeddedResource Include="cloudflared.template.yml" LogicalName="cloudflared_config_template" />
+    <EmbeddedResource Include="..\..\cloud_service.py" LogicalName="cloud_service_py" />
+  </ItemGroup>
+
+  <Target Name="CopyFriendlyLauncherName" AfterTargets="Publish">
+    <Copy SourceFiles="$(PublishDir)AntivirusServerLogin.exe" DestinationFiles="$(PublishDir)Antivirus Server Login.exe" />
+  </Target>
+</Project>
