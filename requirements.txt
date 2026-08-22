@@ -129,6 +129,13 @@ altgraph>=0.17.5
 lief>=0.17.2
 lightgbm>=4.7.0
 
+# ONNX model conversion — converts scikit-learn and LightGBM (EMBER) models
+# to ONNX format so they can run on Android via ONNX Runtime.
+skl2onnx>=1.20.0
+onnxconverter-common>=1.16.0
+onnxruntime>=1.16.0
+onnxmltools>=1.16.0
+
 # Let's Encrypt certificate automation
 certbot>=5.7.0
 certbot-dns-godaddy>=2.8.0

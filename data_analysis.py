@@ -1994,29 +1994,196 @@ def update_ioc_feeds():
 
 
 def is_startup_enabled():
-    """Check whether the app is set to start with Windows for the current user."""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY, 0, winreg.KEY_READ) as key:
-            winreg.QueryValueEx(key, STARTUP_APP_VALUE)
-            return True
-    except Exception:
-        return False
+    """Check whether the app is set to start automatically on login/boot.
+
+    Works on Windows (registry Run key), Linux (systemd user unit or
+    autostart .desktop file), and macOS (LaunchAgent plist).
+    """
+    import sys
+    # --- Windows: HKCU\...\Run registry key ---
+    if sys.platform == 'win32':
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY, 0, winreg.KEY_READ) as key:
+                winreg.QueryValueEx(key, STARTUP_APP_VALUE)
+                return True
+        except Exception:
+            return False
+    # --- Linux: systemd user unit or XDG autostart ---
+    if sys.platform.startswith('linux'):
+        # Check systemd user unit
+        try:
+            import subprocess
+            r = subprocess.run(['systemctl', '--user', 'is-enabled', 'antivirus-server.service'],
+                               capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+        # Check XDG autostart .desktop file
+        autostart = os.path.join(os.path.expanduser('~'), '.config', 'autostart', 'antivirus-server.desktop')
+        return os.path.exists(autostart)
+    # --- macOS: LaunchAgent plist ---
+    if sys.platform == 'darwin':
+        plist = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents', 'com.soluzka.antivirus-server.plist')
+        return os.path.exists(plist)
+    return False
+
+
+def _get_exe_path():
+    """Return the path to the executable that should start on login."""
+    import sys
+    exe_path = sys.executable
+    if exe_path.endswith('pythonw.exe') or exe_path.endswith('python.exe'):
+        # Running from source — look for a built EXE next to the interpreter
+        candidate = os.path.join(os.path.dirname(exe_path), 'AntivirusServer.exe')
+        if os.path.exists(candidate):
+            exe_path = candidate
+        else:
+            # Fallback: run the Python entry point
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'quick_start.py')
+            exe_path = f'"{sys.executable}" "{script}"'
+    return exe_path
 
 
 def toggle_startup_with_windows(enable):
-    """Add or remove the app from the current user's Run key."""
+    """Add or remove the app from the current user's auto-start mechanism.
+
+    Works on Windows (registry Run key), Linux (systemd user unit with
+    XDG autostart fallback), and macOS (LaunchAgent plist).
+    """
+    import sys
+    logger = logging.getLogger('data_analysis')
     try:
-        if enable:
-            import sys
-            exe_path = sys.executable
-            if exe_path.endswith('pythonw.exe') or exe_path.endswith('python.exe'):
-                exe_path = os.path.join(os.path.dirname(exe_path), 'AntivirusServer.exe')
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, STARTUP_APP_VALUE, 0, winreg.REG_SZ, f'"{exe_path}"')
+        # --- Windows: HKCU\...\Run registry key ---
+        if sys.platform == 'win32':
+            import winreg
+            exe_path = _get_exe_path()
+            if enable:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.SetValueEx(key, STARTUP_APP_VALUE, 0, winreg.REG_SZ, f'"{exe_path}"')
+            else:
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                        winreg.DeleteValue(key, STARTUP_APP_VALUE)
+                except FileNotFoundError:
+                    pass  # Already removed
             return True
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REGISTRY_KEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.DeleteValue(key, STARTUP_APP_VALUE)
+
+        # --- Linux: systemd user unit, fallback to XDG autostart ---
+        if sys.platform.startswith('linux'):
+            exe_path = _get_exe_path()
+            if enable:
+                # Try systemd user unit first
+                try:
+                    unit_dir = os.path.join(os.path.expanduser('~'), '.config', 'systemd', 'user')
+                    os.makedirs(unit_dir, exist_ok=True)
+                    unit_path = os.path.join(unit_dir, 'antivirus-server.service')
+                    unit_content = (
+                        '[Unit]\n'
+                        'Description=Antivirus Server\n'
+                        'After=network.target\n\n'
+                        '[Service]\n'
+                        f'ExecStart={exe_path}\n'
+                        'Restart=on-failure\n'
+                        'RestartSec=5\n\n'
+                        '[Install]\n'
+                        'WantedBy=default.target\n'
+                    )
+                    with open(unit_path, 'w', encoding='utf-8') as f:
+                        f.write(unit_content)
+                    import subprocess
+                    subprocess.run(['systemctl', '--user', 'daemon-reload'], timeout=10)
+                    subprocess.run(['systemctl', '--user', 'enable', 'antivirus-server.service'], timeout=10)
+                    return True
+                except Exception as e:
+                    logger.warning(f'systemd user unit failed: {e}; falling back to XDG autostart')
+                # Fallback: XDG autostart .desktop file
+                autostart_dir = os.path.join(os.path.expanduser('~'), '.config', 'autostart')
+                os.makedirs(autostart_dir, exist_ok=True)
+                desktop_path = os.path.join(autostart_dir, 'antivirus-server.desktop')
+                desktop_content = (
+                    '[Desktop Entry]\n'
+                    'Type=Application\n'
+                    'Name=Antivirus Server\n'
+                    f'Exec={exe_path}\n'
+                    'Hidden=false\n'
+                    'NoDisplay=false\n'
+                    'X-GNOME-Autostart-enabled=true\n'
+                    'Comment=Antivirus Server dashboard\n'
+                )
+                with open(desktop_path, 'w', encoding='utf-8') as f:
+                    f.write(desktop_content)
+                os.chmod(desktop_path, 0o755)
+                return True
+            else:
+                # Disable: remove systemd unit and/or autostart file
+                removed = False
+                try:
+                    import subprocess
+                    subprocess.run(['systemctl', '--user', 'disable', 'antivirus-server.service'],
+                                   capture_output=True, timeout=10)
+                    unit_path = os.path.join(os.path.expanduser('~'), '.config', 'systemd', 'user',
+                                             'antivirus-server.service')
+                    if os.path.exists(unit_path):
+                        os.remove(unit_path)
+                        subprocess.run(['systemctl', '--user', 'daemon-reload'], timeout=10)
+                        removed = True
+                except Exception:
+                    pass
+                desktop_path = os.path.join(os.path.expanduser('~'), '.config', 'autostart',
+                                            'antivirus-server.desktop')
+                if os.path.exists(desktop_path):
+                    os.remove(desktop_path)
+                    removed = True
+                return removed
+
+        # --- macOS: LaunchAgent plist ---
+        if sys.platform == 'darwin':
+            exe_path = _get_exe_path()
+            launch_dir = os.path.join(os.path.expanduser('~'), 'Library', 'LaunchAgents')
+            os.makedirs(launch_dir, exist_ok=True)
+            plist_path = os.path.join(launch_dir, 'com.soluzka.antivirus-server.plist')
+            if enable:
+                plist_content = (
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                    '<plist version="1.0">\n'
+                    '<dict>\n'
+                    '  <key>Label</key>\n'
+                    '  <string>com.soluzka.antivirus-server</string>\n'
+                    '  <key>ProgramArguments</key>\n'
+                    '  <array>\n'
+                    f'    <string>{exe_path}</string>\n'
+                    '  </array>\n'
+                    '  <key>RunAtLoad</key>\n'
+                    '  <true/>\n'
+                    '  <key>KeepAlive</key>\n'
+                    '  <true/>\n'
+                    '</dict>\n'
+                    '</plist>\n'
+                )
+                with open(plist_path, 'w', encoding='utf-8') as f:
+                    f.write(plist_content)
+                try:
+                    import subprocess
+                    subprocess.run(['launchctl', 'load', plist_path], timeout=10)
+                except Exception:
+                    pass  # Will load on next login
+            else:
+                if os.path.exists(plist_path):
+                    try:
+                        import subprocess
+                        subprocess.run(['launchctl', 'unload', plist_path], timeout=10)
+                    except Exception:
+                        pass
+                    os.remove(plist_path)
             return True
+
+        # --- Unsupported platform ---
+        logger.warning(f'Startup toggle not supported on {sys.platform}')
+        return False
     except Exception as e:
         logging.getLogger('data_analysis').warning(f'Startup toggle failed: {e}')
         return False

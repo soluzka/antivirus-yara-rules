@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">Antivirus Server</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_server_category">Server</string>
+    <string name="settings_server_url">Server URL</string>
+    <string name="settings_server_url_summary">The URL of your Antivirus Server</string>
+    <string name="settings_license_key">License Key</string>
+    <string name="settings_license_key_summary">Your Lemon Squeezy license key</string>
+    <string name="settings_notifications_category">Notifications</string>
+    <string name="settings_notifications_enabled">Enable alerts</string>
+    <string name="settings_poll_interval">Check interval</string>
+    <string name="settings_startup_category">Startup</string>
+    <string name="settings_startup_at_boot">Start at boot</string>
+    <string name="settings_startup_at_boot_summary">Launch the dashboard automatically when the device starts</string>
+    <string name="action_settings">Settings</string>
+    <string name="loading">Loading…</string>
+    <string name="no_server_configured">No server URL configured. Open Settings to set one.</string>
+    <string name="connection_error">Cannot reach server. Check your URL in Settings.</string>
+    <string name="channel_name">Security Alerts</string>
+    <string name="channel_description">Notifications for threats and scan results</string>
+</resources>

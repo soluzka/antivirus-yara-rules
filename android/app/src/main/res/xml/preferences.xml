@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory android:title="@string/settings_server_category">
+
+        <EditTextPreference
+            android:key="server_url"
+            android:title="@string/settings_server_url"
+            android:summary="@string/settings_server_url_summary"
+            android:defaultValue="https://isolation-bytes.com"
+            android:inputType="textUri" />
+
+        <EditTextPreference
+            android:key="license_key"
+            android:title="@string/settings_license_key"
+            android:summary="@string/settings_license_key_summary"
+            android:inputType="textPassword" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_notifications_category">
+
+        <SwitchPreference
+            android:key="notifications_enabled"
+            android:title="@string/settings_notifications_enabled"
+            android:defaultValue="true" />
+
+        <ListPreference
+            android:key="poll_interval"
+            android:title="@string/settings_poll_interval"
+            android:entries="@array/poll_interval_labels"
+            android:entryValues="@array/poll_interval_values"
+            android:defaultValue="15" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/settings_startup_category">
+
+        <SwitchPreference
+            android:key="startup_at_boot"
+            android:title="@string/settings_startup_at_boot"
+            android:summary="@string/settings_startup_at_boot_summary"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>
