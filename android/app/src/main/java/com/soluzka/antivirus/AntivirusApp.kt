@@ -11,21 +11,29 @@ class AntivirusApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        NotificationHelper.createChannel(this)
-        scheduleAlertWorker()
+        try {
+            NotificationHelper.createChannel(this)
+            scheduleAlertWorker()
+        } catch (e: Exception) {
+            // Don't crash the app if notifications or WorkManager fail
+        }
     }
 
     private fun scheduleAlertWorker() {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val intervalMinutes = prefs.getString("poll_interval", "15")?.toLongOrNull() ?: 15
+        try {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+            val intervalMinutes = prefs.getString("poll_interval", "15")?.toLongOrNull() ?: 15
 
-        val request = PeriodicWorkRequestBuilder<AlertWorker>(intervalMinutes, TimeUnit.MINUTES)
-            .build()
+            val request = PeriodicWorkRequestBuilder<AlertWorker>(intervalMinutes, TimeUnit.MINUTES)
+                .build()
 
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "security_alerts",
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "security_alerts",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request
+            )
+        } catch (e: Exception) {
+            // WorkManager not available — skip
+        }
     }
 }

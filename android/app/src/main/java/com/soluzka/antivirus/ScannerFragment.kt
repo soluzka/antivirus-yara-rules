@@ -20,8 +20,10 @@ import com.soluzka.antivirus.scanner.FileScanner
 import com.soluzka.antivirus.scanner.MlScanner
 import com.soluzka.antivirus.scanner.QuarantineManager
 import com.soluzka.antivirus.scanner.YaraScanner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ScannerFragment : Fragment() {
 
@@ -94,13 +96,20 @@ class ScannerFragment : Fragment() {
         yaraScanner.loadRulesFromAssets()
 
         mlScanner = MlScanner(requireContext())
-        mlScanner.loadModel()
-
         fileScanner = FileScanner(requireContext(), yaraScanner, mlScanner)
         quarantine = QuarantineManager(requireContext())
 
         updateStatus()
         refreshQuarantine()
+
+        // Load ML models on a background thread — they're 35+ MB
+        // and would freeze/crash the app if loaded on the main thread
+        lifecycleScope.launch(Dispatchers.IO) {
+            mlScanner.loadModels()
+            withContext(Dispatchers.Main) {
+                updateStatus()
+            }
+        }
     }
 
     private fun requestPermissions() {

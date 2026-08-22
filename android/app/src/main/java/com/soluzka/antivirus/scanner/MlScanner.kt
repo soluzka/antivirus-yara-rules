@@ -10,8 +10,8 @@ import java.nio.FloatBuffer
 /**
  * On-device ML malware classifier using ONNX Runtime.
  *
- * Loads the bodmas_cnn.onnx model from assets and classifies files
- * as malicious or benign based on byte-level features.
+ * Loads all ONNX models from assets (bodmas_cnn.onnx, ember_model.onnx)
+ * and classifies files as malicious or benign based on byte-level features.
  */
 class MlScanner(private val context: Context) {
 
@@ -21,16 +21,23 @@ class MlScanner(private val context: Context) {
         val label: String
     )
 
+    @Volatile
     private var env: OrtEnvironment? = null
+
+    @Volatile
     private var sessions = mutableListOf<OrtSession>()
     private var inputNames = mutableListOf<String>()
     private var outputNames = mutableListOf<String>()
     private var modelNames = mutableListOf<String>()
 
+    @Volatile
+    private var loaded = false
+
     /**
-     * Load all ONNX models from assets.
+     * Load all ONNX models from assets. Call this on a background thread.
      */
     fun loadModels() {
+        if (loaded) return
         try {
             env = OrtEnvironment.getEnvironment()
             val assets = context.assets
@@ -49,24 +56,22 @@ class MlScanner(private val context: Context) {
                     outputNames.add(session.outputNames.first())
                     modelNames.add(modelFile)
                 } catch (e: Exception) {
-                    // Skip this model
+                    // Skip this model — don't crash
                 }
             }
+            loaded = true
         } catch (e: Exception) {
-            // Model load failed — ML scanning will be disabled
+            loaded = true  // Mark as attempted even if failed
         }
     }
 
-    /** Legacy single-model loader. */
+    /** Compatibility method. */
     fun loadModel(assetName: String = "models/bodmas_cnn.onnx") {
         loadModels()
     }
 
     /**
      * Classify a file as malicious or benign.
-     *
-     * Extracts byte histogram features (256 bins) from the file and
-     * feeds them to the ONNX model.
      */
     fun classifyFile(file: File): MlResult? {
         if (sessions.isEmpty()) return null
@@ -92,7 +97,6 @@ class MlScanner(private val context: Context) {
             for (i in histogram.indices) histogram[i] /= total
         }
 
-        // Run through all loaded models, return the most confident malicious result
         var bestResult: MlResult? = null
         for (i in sessions.indices) {
             val result = classifyWithModel(histogram, i, modelNames[i])
@@ -113,40 +117,52 @@ class MlScanner(private val context: Context) {
         val inputName = inputNames.getOrNull(index) ?: return null
         val outputName = outputNames.getOrNull(index) ?: return null
 
+        var inputTensor: OnnxTensor? = null
+        var results: OrtSession.Result? = null
         return try {
             val shape = longArrayOf(1, features.size.toLong())
-            val inputTensor = OnnxTensor.createTensor(environment, FloatBuffer.wrap(features), shape)
-            val results = sess.run(mapOf(inputName to inputTensor))
-            val output = results[outputName] as? OnnxTensor
-            val outputBuffer = output?.floatBuffer
+            inputTensor = OnnxTensor.createTensor(environment, FloatBuffer.wrap(features), shape)
+            results = sess.run(mapOf(inputName to inputTensor))
+
+            // Get output value safely
+            val outputObj = results[outputName]
+            val outputBuffer = if (outputObj is OnnxTensor) {
+                outputObj.floatBuffer
+            } else {
+                null
+            }
 
             if (outputBuffer != null) {
-                val probs = FloatArray(2)
+                // Read available floats (may be 1 or 2)
+                val remaining = outputBuffer.remaining()
+                val probs = FloatArray(remaining)
                 outputBuffer.get(probs)
-                results.close()
 
-                val maliciousProb = if (probs.size >= 2) probs[0] else probs[0]
+                val maliciousProb = if (remaining >= 2) probs[0] else probs.getOrElse(0) { 0f }
                 val isMalicious = maliciousProb > 0.5f
                 val confidence = if (isMalicious) maliciousProb else (1f - maliciousProb)
                 val label = if (isMalicious) "Malware ($modelName)" else "Benign"
                 MlResult(isMalicious, confidence, label)
             } else {
-                results.close()
                 null
             }
         } catch (e: Exception) {
             null
+        } finally {
+            try { results?.close() } catch (_: Exception) {}
+            try { inputTensor?.close() } catch (_: Exception) {}
         }
     }
 
-    fun isLoaded(): Boolean = sessions.isNotEmpty()
+    fun isLoaded(): Boolean = loaded && sessions.isNotEmpty()
 
     fun getModelCount(): Int = sessions.size
 
-    fun getModelNames(): List<String> = modelNames
+    fun getModelNames(): List<String> = modelNames.toList()
 
     fun close() {
-        sessions.forEach { it.close() }
+        sessions.forEach { try { it.close() } catch (_: Exception) {} }
         sessions.clear()
+        loaded = false
     }
 }
