@@ -74,7 +74,8 @@ def _find_sdk_zip():
     if len(sys.argv) > 1:
         search_dirs.append(os.path.dirname(sys.argv[1]))
         if os.path.isfile(sys.argv[1]) and sys.argv[1].endswith('.zip'):
-            return sys.argv[1]
+            if _is_valid_zip(sys.argv[1]):
+                return sys.argv[1]
     if getattr(sys, 'frozen', False):
         search_dirs.append(os.path.dirname(sys.executable))
         meipass = getattr(sys, '_MEIPASS', None)
@@ -87,25 +88,60 @@ def _find_sdk_zip():
             continue
         for name in os.listdir(directory):
             if name.startswith('dotnet-sdk-') and name.endswith('-win-x64.zip'):
-                return os.path.join(directory, name)
+                candidate = os.path.join(directory, name)
+                if _is_valid_zip(candidate):
+                    return candidate
     return None
+
+
+def _is_valid_zip(path):
+    """Check if a file is a valid zip archive."""
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        import zipfile as _zf
+        with _zf.ZipFile(path, 'r') as z:
+            # Try reading the first entry to confirm it's not truncated
+            if z.namelist():
+                z.read(z.namelist()[0])
+        return True
+    except Exception:
+        return False
 
 
 def _download_sdk_zip():
     """Download the .NET SDK installer zip to a temporary file."""
     target = os.path.join(tempfile.gettempdir(), 'dotnet-sdk-8.0.424-win-x64.zip')
+    # Delete any existing corrupted/partial download
     if os.path.exists(target):
-        return target
+        if _is_valid_zip(target):
+            return target
+        try:
+            os.remove(target)
+        except Exception:
+            pass
     print('Downloading .NET 8 SDK...')
-    try:
-        import urllib.request
-        urllib.request.urlretrieve(
-            'https://dotnetcli.azureedge.net/dotnet/Sdk/8.0.424/dotnet-sdk-8.0.424-win-x64.zip',
-            target
-        )
-        return target
-    except Exception as e:
-        raise RuntimeError(f'Failed to download .NET SDK: {e}')
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            import urllib.request
+            urllib.request.urlretrieve(
+                'https://dotnetcli.azureedge.net/dotnet/Sdk/8.0.424/dotnet-sdk-8.0.424-win-x64.zip',
+                target
+            )
+            if _is_valid_zip(target):
+                return target
+            # Download produced an invalid zip — delete and retry
+            try:
+                os.remove(target)
+            except Exception:
+                pass
+            print(f'Download attempt {attempt} produced an invalid file, retrying...')
+        except Exception as e:
+            if attempt == max_retries:
+                raise RuntimeError(f'Failed to download .NET SDK after {max_retries} attempts: {e}')
+            print(f'Download attempt {attempt} failed: {e}, retrying...')
+    raise RuntimeError('Failed to download a valid .NET SDK zip')
 
 
 def _extract_sdk(zip_path, progress, status, root):

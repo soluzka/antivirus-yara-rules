@@ -85,6 +85,7 @@ HIDDEN_IMPORTS = [
     "security.assistant_database", "security.local_agent",
     "quarantine_utils", "file_crypto", "utils.paths",
     "waitress", "json", "hashlib", "secrets", "webbrowser",
+    "license_manager",
     # ML/scanning libraries — needed for BODMAS, EMBER, sklearn models, YARA
     "sklearn", "sklearn.ensemble", "sklearn.linear_model", "sklearn.svm",
     "sklearn.tree", "sklearn.neural_network", "sklearn.preprocessing",

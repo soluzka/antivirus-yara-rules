@@ -98,6 +98,7 @@
                     <button class="btn" onclick="openPublicPage('activate')">Activate / Login</button>
                     <a class="btn" href="/download/Antivirus%20Server%20Login.exe" target="_blank" download>Download Launcher</a>
                     <a class="btn" href="/login" target="_blank">Admin</a>
+                    <button class="btn" onclick="showPage('adminLicensePage')">Manage Licenses</button>
                 </div>
             </div>
         </div>
@@ -109,6 +110,12 @@
                 <p class="price">$9.99 one-time purchase — permanent license</p>
                 <p class="steps">
                     Pay $9.99 once for a permanent license tied to your machine. No subscriptions, no renewals, no recurring charges.
+                </p>
+                <p class="steps" style="background:#0d1b2a; padding:12px; border-radius:6px; border:1px solid #415a77;">
+                    <strong style="color:#90e0ef;">How it works:</strong><br>
+                    1. Click Buy Now — you'll be redirected to Stripe's secure checkout.<br>
+                    2. After payment, Stripe redirects back here and your <code style="color:#00b4d8;">IB-...</code> license key is generated automatically.<br>
+                    3. Copy the key, go to Activate / Login, paste it, and you're protected.
                 </p>
                 <div class="machine-box">
                     <label for="purchaseMachineId">Your Machine ID</label>
@@ -128,7 +135,7 @@
                     padding: 20px;
                     margin: 14px 0;
                 ">
-                    <button id="lemonPayBtn" class="btn primary" style="
+                    <button id="buyNowBtn" class="btn primary" style="
                         display: inline-block;
                         font-size: 18px;
                         line-height: 48px;
@@ -142,7 +149,7 @@
                         cursor: pointer;
                         text-decoration: none;
                         font-weight: bold;
-                    " onclick="doBuyNow()">Buy with Lemon Squeezy</button>
+                    " onclick="doBuyNow()">Buy Now</button>
                 </div>
                 <div class="btn-row">
                     <button class="btn" onclick="showPage('activatePage')">Activate / Login</button>
@@ -157,14 +164,14 @@
             <div class="card">
                 <h2>Activate Antivirus Server</h2>
                 <div class="notice" style="background:#415a77; border-left: 4px solid #00b4d8; padding:12px; border-radius:6px; margin-bottom:16px;">
-                    Enter the license key you received after purchase. It will be verified and tied to your machine.
+                    Enter the <strong>IB-</strong> license key you received after purchase. It will be verified and tied to your machine.
                 </div>
 
                 <label for="machineId">Machine ID</label>
                 <input id="machineId" type="text" readonly>
 
-                <label for="licenseKey">Lemon Squeezy License Key</label>
-                <input id="licenseKey" type="text" placeholder="Paste your license key here...">
+                <label for="licenseKey">License Key</label>
+                <input id="licenseKey" type="text" placeholder="IB-xxxxx.xxxxx">
 
                 <div class="btn-row">
                     <button class="btn primary" onclick="doActivate()">Activate License</button>
@@ -187,6 +194,28 @@
                 </div>
 
                 <div id="status" class="status">Enter your license key to activate.</div>
+            </div>
+        </div>
+
+        <!-- ADMIN LICENSE MANAGEMENT PAGE -->
+        <div id="adminLicensePage" class="page">
+            <div class="card">
+                <h2>License Management (Admin)</h2>
+                <p style="color:#bde0fe;">View, revoke, and delete self-hosted license keys.</p>
+                <p style="color:#ffd166;font-size:0.85rem;">License keys are generated automatically after Stripe payment. Manual generation is disabled.</p>
+
+                <div class="btn-row" style="margin-top:12px;">
+                    <button class="btn primary" onclick="adminLoadLicenses()">Refresh List</button>
+                    <button class="btn" onclick="showPage('homePage')">Back</button>
+                </div>
+                <div id="genResult" class="status"></div>
+            </div>
+
+            <div class="card">
+                <h3 style="color:#90e0ef;">All Licenses</h3>
+                <div id="licenseListContainer" style="margin-top:12px;">
+                    <p style="color:#778da9;">Click "Refresh List" to load licenses.</p>
+                </div>
             </div>
         </div>
     </div>
@@ -240,7 +269,7 @@
             document.body.removeChild(a);
         }
         function showPage(pageId) {
-            var ids = ['homePage','purchasePage','activatePage'];
+            var ids = ['homePage','purchasePage','activatePage','adminLicensePage'];
             for (var i = 0; i < ids.length; i++) {
                 var el = document.getElementById(ids[i]);
                 if (el) { el.className = 'page'; }
@@ -329,14 +358,18 @@
             var mid = document.getElementById('machineId').value.trim();
             var u = document.getElementById('username').value.trim();
             if (!licKey) { setActivateResult('Enter your license key.', true); return; }
-            setActivateResult('Verifying license...', false);
-            fetch('/api/lemonsqueezy/validate-license', {
+            if (!licKey.startsWith('IB-')) { setActivateResult('License keys start with "IB-". Please check your key.', true); return; }
+            setActivateResult('Activating license...', false);
+            fetch('/api/license/activate', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({license_key: licKey, machine_id: mid, instance_name: u || mid})
             }).then(function(r){ return r.json(); }).then(function(data){
                 if (data.ok) {
-                    setActivateResult('License activated! You can now log in below.', false);
+                    var msg = 'License activated! Tier: ' + (data.tier || 'pro') + '. ';
+                    msg += data.already_activated ? 'This device was already activated.' : 'Device registered.';
+                    msg += ' (' + data.activations_used + '/' + data.max_devices + ' devices used)';
+                    setActivateResult(msg, false);
                     document.getElementById('launchBtn').disabled = false;
                 } else {
                     setActivateResult('Activation failed: ' + (data.error || 'Invalid license'), true);
@@ -410,10 +443,16 @@
         }
 
         function buildPaymentUrl(mid) {
-            // Pass machine_id and username as Lemon Squeezy checkout custom data
-            // so the webhook receives them and ties the order to this machine
+            // Pass machine_id as a Stripe checkout custom field so it comes
+            // back in the redirect URL after payment. The server's
+            // /purchase-success endpoint uses it to auto-activate the license.
+            if (!PAYMENT_URL) return '';
             var sep = PAYMENT_URL.indexOf('?') === -1 ? '?' : '&';
             var url = PAYMENT_URL + sep + 'checkout[custom][machine_id]=' + encodeURIComponent(mid || '');
+            // Stripe Payment Links support client_reference_id and prefilled
+            // custom fields. The redirect after payment goes to the success_url
+            // configured in the Stripe dashboard, which should be:
+            //   https://isolation-bytes.com/purchase-success
             return url;
         }
         function doBuyNow() {
@@ -429,7 +468,7 @@
             } else {
                 if (!PAYMENT_URL) { setPurchaseStatus('No payment URL configured on this server.', true); return; }
                 window.open(buildPaymentUrl(mid), '_blank');
-                setPurchaseStatus('Payment window opened. After paying, use Activate / Login to enter your license key.', false);
+                setPurchaseStatus('Stripe checkout opened in a new tab. After payment, you\'ll be redirected back with your license key.', false);
             }
         }
 
@@ -449,6 +488,56 @@
                     localStorage.setItem(key, val);
                 }
             } catch (e) {}
+        }
+
+        // ---- Admin license management ----
+        function adminLoadLicenses() {
+            var container = document.getElementById('licenseListContainer');
+            container.innerHTML = '<p style="color:#778da9;">Loading...</p>';
+            fetch('/api/license/list').then(function(r){
+                if (r.status === 401) { container.innerHTML = '<p style="color:#ff6b6b;">Admin login required. <a href="/login" style="color:#00b4d8;">Login here</a></p>'; return null; }
+                return r.json();
+            }).then(function(data){
+                if (!data) return;
+                var licenses = data.licenses || [];
+                if (licenses.length === 0) {
+                    container.innerHTML = '<p style="color:#778da9;">No licenses generated yet.</p>';
+                    return;
+                }
+                var html = '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">';
+                html += '<tr style="border-bottom:1px solid #415a77;color:#90e0ef;text-align:left;">';
+                html += '<th style="padding:6px;">ID</th><th>Tier</th><th>Customer</th><th>Devices</th><th>Revoked</th><th>Actions</th></tr>';
+                for (var i = 0; i < licenses.length; i++) {
+                    var lic = licenses[i];
+                    var revoked = lic.revoked ? 'Yes' : 'No';
+                    var revokeBtn = lic.revoked ?
+                        '<button class="btn" style="padding:4px 10px;font-size:0.8rem;" onclick="adminUnrevokeLicense(\'' + lic.license_id + '\')">Unrevoke</button>' :
+                        '<button class="btn" style="padding:4px 10px;font-size:0.8rem;" onclick="adminRevokeLicense(\'' + lic.license_id + '\')">Revoke</button>';
+                    html += '<tr style="border-bottom:1px solid #1b263b;">';
+                    html += '<td style="padding:6px;font-family:monospace;font-size:0.75rem;">' + lic.license_id.substring(0,20) + '...</td>';
+                    html += '<td>' + lic.tier + '</td>';
+                    html += '<td>' + (lic.customer || 'N/A') + '</td>';
+                    html += '<td>' + (lic.activations_count || 0) + '/' + (lic.max_devices || 1) + '</td>';
+                    html += '<td style="color:' + (lic.revoked ? '#ff6b6b' : '#6be') + ';">' + revoked + '</td>';
+                    html += '<td>' + revokeBtn +
+                        ' <button class="btn" style="padding:4px 10px;font-size:0.8rem;color:#ff6b6b;" onclick="adminDeleteLicense(\'' + lic.license_id + '\')">Delete</button></td>';
+                    html += '</tr>';
+                }
+                html += '</table>';
+                container.innerHTML = html;
+            }).catch(function(){ container.innerHTML = '<p style="color:#ff6b6b;">Could not load licenses.</p>'; });
+        }
+
+        function adminRevokeLicense(id) {
+            if (!confirm('Revoke this license? It will stop working immediately.')) return;
+            fetch('/api/license/' + id + '/revoke', {method: 'POST'}).then(function(r){ return r.json(); }).then(function(){ adminLoadLicenses(); });
+        }
+        function adminUnrevokeLicense(id) {
+            fetch('/api/license/' + id + '/unrevoke', {method: 'POST'}).then(function(r){ return r.json(); }).then(function(){ adminLoadLicenses(); });
+        }
+        function adminDeleteLicense(id) {
+            if (!confirm('Permanently delete this license? This cannot be undone.')) return;
+            fetch('/api/license/' + id, {method: 'DELETE'}).then(function(r){ return r.json(); }).then(function(){ adminLoadLicenses(); });
         }
 
         function initPage() {

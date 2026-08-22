@@ -5,7 +5,7 @@
     <string name="settings_server_url">Server URL</string>
     <string name="settings_server_url_summary">The URL of your Antivirus Server</string>
     <string name="settings_license_key">License Key</string>
-    <string name="settings_license_key_summary">Your Lemon Squeezy license key</string>
+    <string name="settings_license_key_summary">Your IB- license key (or legacy Lemon Squeezy key)</string>
     <string name="settings_notifications_category">Notifications</string>
     <string name="settings_notifications_enabled">Enable alerts</string>
     <string name="settings_poll_interval">Check interval</string>

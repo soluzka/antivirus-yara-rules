@@ -1,8 +1,13 @@
 package com.soluzka.antivirus
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,6 +15,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -52,6 +58,7 @@ class ScannerFragment : Fragment() {
 
     companion object {
         private const val PERMISSION_REQUEST = 1001
+        private const val MANAGE_STORAGE_REQUEST = 1002
     }
 
     override fun onCreateView(
@@ -144,6 +151,41 @@ class ScannerFragment : Fragment() {
 
     private fun startFullScan() {
         if (isScanning) return
+
+        // On Android 11+ (API 30+), scanning all external storage requires
+        // MANAGE_EXTERNAL_STORAGE, which must be granted via a system settings
+        // page — it cannot be requested through the normal runtime dialog.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            Toast.makeText(
+                requireContext(),
+                "Full scan needs \"All files access\" permission. Please grant it in Settings, then tap Full Scan again.",
+                Toast.LENGTH_LONG
+            ).show()
+            requestManageExternalStorage()
+            return
+        }
+
+        // Also make sure legacy READ_EXTERNAL_STORAGE is granted on older APIs
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            val granted = ContextCompat.checkSelfPermission(
+                requireContext(),
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                ActivityCompat.requestPermissions(
+                    requireActivity(),
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+                    PERMISSION_REQUEST
+                )
+                Toast.makeText(
+                    requireContext(),
+                    "Full scan needs storage permission. Please grant it and tap Full Scan again.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+        }
+
         isScanning = true
         setButtonsEnabled(false)
         progressContainer.visibility = View.VISIBLE
@@ -159,10 +201,40 @@ class ScannerFragment : Fragment() {
         }
     }
 
+    private fun requestManageExternalStorage() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:${requireContext().packageName}")
+                }
+                startActivityForResult(intent, MANAGE_STORAGE_REQUEST)
+            } catch (e: Exception) {
+                // Some OEM ROMs don't expose the per-app intent; fall back to
+                // the generic "all files access" settings page.
+                try {
+                    val fallback = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    startActivityForResult(fallback, MANAGE_STORAGE_REQUEST)
+                } catch (e2: Exception) {
+                    Toast.makeText(
+                        requireContext(),
+                        "Could not open the All Files Access settings page. Please grant it manually in Settings > Apps.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
     private fun updateProgress(progress: FileScanner.ScanProgress) {
         scanProgressBar.max = progress.totalFiles.coerceAtLeast(1)
         scanProgressBar.progress = progress.scannedFiles
         progressDetail.text = "${progress.scannedFiles}/${progress.totalFiles} | Threats: ${progress.threatsFound} | ${progress.currentFile.take(40)}"
+
+        // Show threats in the list as they're discovered
+        if (progress.threats.isNotEmpty()) {
+            threatsHeader.visibility = View.VISIBLE
+            threatsAdapter.update(progress.threats)
+        }
     }
 
     private fun onScanComplete(progress: FileScanner.ScanProgress) {
@@ -170,10 +242,12 @@ class ScannerFragment : Fragment() {
         setButtonsEnabled(true)
         progressContainer.visibility = View.GONE
 
+        // Display final threat list
         if (progress.threatsFound > 0) {
             protectionStatus.text = "Threats Found!"
             protectionStatus.setTextColor(resources.getColor(android.R.color.holo_red_dark, null))
             threatsHeader.visibility = View.VISIBLE
+            threatsAdapter.update(progress.threats)
         } else {
             protectionStatus.text = "Protected"
             protectionStatus.setTextColor(resources.getColor(android.R.color.holo_green_dark, null))
@@ -187,6 +261,33 @@ class ScannerFragment : Fragment() {
             .putLong("last_scan_time", System.currentTimeMillis())
             .putInt("last_scan_threats", progress.threatsFound)
             .apply()
+
+        // Quarantine all detected threats on a background thread
+        if (progress.threats.isNotEmpty()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                var quarantined = 0
+                var failed = 0
+                for (threat in progress.threats) {
+                    if (quarantine.quarantine(threat.file, threat.threatName)) {
+                        quarantined++
+                    } else {
+                        failed++
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    if (quarantined > 0) {
+                        Toast.makeText(
+                            requireContext(),
+                            "$quarantined threat(s) quarantined" +
+                                if (failed > 0) ", $failed failed" else "",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    refreshQuarantine()
+                    updateStatus()
+                }
+            }
+        }
     }
 
     private fun updateStatus() {
@@ -226,5 +327,21 @@ class ScannerFragment : Fragment() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         // Permissions may have been granted — update UI
         updateStatus()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == MANAGE_STORAGE_REQUEST) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+                Toast.makeText(requireContext(), "Permission granted. Starting full scan...", Toast.LENGTH_SHORT).show()
+                startFullScan()
+            } else {
+                Toast.makeText(
+                    requireContext(),
+                    "All files access was not granted. Full scan will only cover app-private storage.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 }
