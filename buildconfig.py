@@ -31,7 +31,7 @@ DIST_DIR = PROJECT_ROOT / 'dist'
 # URLs (no port — Caddy/Cloudflare handle HTTPS on 443)
 PUBLIC_URL = "https://isolation-bytes.com"
 LICENSE_SERVER = "https://isolation-bytes.com"
-PAYMENT_URL = "https://soluzka.lemonsqueezy.com/checkout/buy/19c84fba-cbd9-458e-80ba-8dfd2e5c11c0"
+PAYMENT_URL = os.environ.get("PAYMENT_URL", "")  # Set in .env — any store's checkout URL
 
 # Ports
 PROXY_PORT = 8000      # Flask internal (proxy mode)

@@ -394,7 +394,13 @@
                 catch (e) { setStatus('Error: ' + e.message, true); }
             } else { setStatus('Launch is only available from the Windows app.', true); }
         }
-        var PAYMENT_URL = 'https://soluzka.lemonsqueezy.com/checkout/buy/19c84fba-cbd9-458e-80ba-8dfd2e5c11c0';
+        // PAYMENT_URL is fetched from the server's /api/config endpoint so
+        // any store owner can set their own checkout URL via PAYMENT_URL in
+        // their .env — no hardcoded store-specific URLs.
+        var PAYMENT_URL = '';
+        fetch('/api/config').then(function(r){ return r.json(); }).then(function(cfg){
+            if (cfg && cfg.payment_url) { PAYMENT_URL = cfg.payment_url; }
+        }).catch(function(){});
 
         function isNative() {
             if (IS_NATIVE_LAUNCHER) { return true; }
@@ -421,6 +427,7 @@
                 try { window.external.Purchase(mid); }
                 catch (e) { setPurchaseStatus('Error: ' + e.message, true); }
             } else {
+                if (!PAYMENT_URL) { setPurchaseStatus('No payment URL configured on this server.', true); return; }
                 window.open(buildPaymentUrl(mid), '_blank');
                 setPurchaseStatus('Payment window opened. After paying, use Activate / Login to enter your license key.', false);
             }
