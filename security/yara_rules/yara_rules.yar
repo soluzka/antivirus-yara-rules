@@ -1146,7 +1146,7 @@ rule Unresolved_HighEntropy_DataAnalysis_Blob {
         $prefix = { 33 3d 55 b3 5c ac b6 36 7c 63 f2 5c 75 30 30 30 30 66 e3 a3 dc 5c 75 30 30 31 62 6e 3e 5d 55 e3 ca }
         $suffix = { 4f 2d d9 55 b5 c6 cb 33 b5 b1 b6 a9 6e 3c a7 f2 }
     condition:
-        $prefix at 0 or $suffix at (filesize - 16)
+        $prefix or $suffix
 }
 
 

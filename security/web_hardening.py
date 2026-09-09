@@ -157,7 +157,7 @@ def init_web_security(
             key_func=get_remote_address,
             app=app,
             default_limits=[
-                os.environ.get("RATE_LIMIT_15MIN", "100 per 15 minutes"),
+                os.environ.get("RATE_LIMIT_15MIN", "10000 per 15 minutes"),
             ],
             storage_uri=os.environ.get("RATE_LIMIT_STORAGE_URI", "memory://"),
             strategy="fixed-window",

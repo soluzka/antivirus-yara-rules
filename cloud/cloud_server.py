@@ -2462,12 +2462,12 @@ _INSTALL_ANDROID_SH = r'''#!/bin/bash
 set -e
 BASE_URL="${ISOLATION_BYTES_SERVER:-https://isolation-bytes.com}"
 echo "Downloading Isolation Bytes APK..."
-curl -L "$BASE_URL/download/IsolationBytes.apk" -o /tmp/IsolationBytes.apk
+curl -L "$BASE_URL/download/IsolationBytes-v1.8.950.0.apk" -o /tmp/IsolationBytes-v1.8.950.0.apk
 if command -v adb &>/dev/null; then
     echo "Installing via adb..."
-    adb install -r /tmp/IsolationBytes.apk
+    adb install -r /tmp/IsolationBytes-v1.8.950.0.apk
 else
-    echo "adb not found. APK saved to /tmp/IsolationBytes.apk"
+    echo "adb not found. APK saved to /tmp/IsolationBytes-v1.8.950.0.apk"
     echo "Transfer to your Android device and install manually."
 fi
 '''
@@ -6212,11 +6212,11 @@ def create_cloud_app():
     limiter = app.extensions.get('web_rate_limiter')
     if limiter is not None:
         for endpoint, limit in (
-            ('cloud.agent_register', '30 per minute'),
-            ('cloud.agent_heartbeat', '30 per minute'),
-            ('cloud.agent_report', '30 per minute'),
-            ('cloud.cloud_agent_trigger_scan', '10 per minute'),
-            ('cloud.cloud_run_startup', '10 per minute'),
+            ('cloud.agent_register', '1000 per minute'),
+            ('cloud.agent_heartbeat', '1000 per minute'),
+            ('cloud.agent_report', '1000 per minute'),
+            ('cloud.cloud_agent_trigger_scan', '500 per minute'),
+            ('cloud.cloud_run_startup', '500 per minute'),
         ):
             view = app.view_functions.get(endpoint)
             if view is not None:
